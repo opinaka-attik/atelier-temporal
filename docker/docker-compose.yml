@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+
+  # Temporal Server
+  temporal:
+    image: temporalio/auto-setup:1.24.2
+    container_name: temporal
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - temporal-net
+    restart: unless-stopped
+
+  # Temporal Web UI
+  temporal-ui:
+    image: temporalio/ui:2.28.0
+    container_name: temporal-ui
+    ports:
+      - "8080:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:8080
+    depends_on:
+      - temporal
+    networks:
+      - temporal-net
+    restart: unless-stopped
+
+  # PostgreSQL backend
+  postgres:
+    image: postgres:13-alpine
+    container_name: temporal-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - temporal-net
+    restart: unless-stopped
+
+  # Worker Python (pour executer les workflows)
+  temporal-worker:
+    build:
+      context: ../workers
+      dockerfile: Dockerfile
+    container_name: temporal-worker
+    environment:
+      - TEMPORAL_HOST=temporal
+      - TEMPORAL_PORT=7233
+    depends_on:
+      - temporal
+    networks:
+      - temporal-net
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  temporal-net:
+    driver: bridge
